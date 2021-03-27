@@ -1,0 +1,290 @@
+<!doctype html> 
+<html lang="en"> 
+<head> 
+    <meta charset="UTF-8" />
+    <title>RoboWave</title>
+    <link rel="shortcut icon" type="image/png" href="assets/favicon.png"/>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.11.0/dist/phaser.js"></script>
+    <style type="text/css">
+    </style>
+</head>
+
+<body style="background-color: rgb(44, 44, 44)">
+
+<div style="width:800px; margin:0 auto; background-color: rgb(241, 92, 34);">
+<img src="assets/wordart.png" alt="RoboWave" width="400" height="80" style="margin:0 auto; padding-top:10px;display: block;">
+</div>
+
+
+<div id='cooldemo', style="width:800px; margin:0 auto;background-color: rgb(241, 92, 34);"></div>
+<script type="text/javascript">
+
+var config = {
+    parent: 'cooldemo',
+    type: Phaser.AUTO,
+    width: 800,
+    height: 600,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 300 },
+            debug: false
+        }
+    },
+    scene: {
+        preload: preload,
+        create: create,
+        update: update
+    },
+};
+
+var player;
+var mask;
+var stars;
+var bombs;
+var platforms;
+var cursors;
+var score = 0;
+var battery = 100;
+var gameOver = false;
+var scoreText;
+var skyWrapper;
+let keyA;
+let keyS;
+let keyD;
+let keyW;
+var wecBody;
+let wecTick = 0;
+let wecDir = 1;
+let wecVel = 0;
+let wecSw = 1;
+
+var game = new Phaser.Game(config);
+
+function preload ()
+{
+    this.load.image('sandy', 'assets/bottom2.png');
+    this.load.image('sky', 'assets/ocean.png');
+    this.load.image('wave', 'assets/waves.png');
+    this.load.image('ground', 'assets/platform2.png');
+    this.load.image('star', 'assets/shell.png');
+    this.load.image('bomb', 'assets/bobomb.png');
+    this.load.image('wecimg', 'assets/wecstand.png');
+    this.load.image('wecdisk', 'assets/wecbounce.png');
+    this.load.image('scorebox', 'assets/scorebox.png');
+    this.load.spritesheet('dude', 'assets/robot.png', { frameWidth: 80, frameHeight: 50 });
+}
+
+function create ()
+{
+    //  A simple background for our game
+    this.add.image(400, 300, 'sky');
+    skyWrapper = this.add.tileSprite(400, 63, 800, 126, 'wave');
+
+    // Wave energy converter
+    wecBase=this.physics.add.sprite(400, 65, 'wecimg').setImmovable(true);
+    wecBase.body.setAllowGravity(false);
+    wecBase.setScale(1.2);
+    wecBody=this.physics.add.sprite(400, 75, 'wecdisk').setImmovable(true);
+    wecBody.body.setAllowGravity(false);
+    wecBody.setScale(1.2);
+
+    //  Ground and platforms
+    platforms = this.physics.add.staticGroup();
+    platforms.create(400, 568, 'sandy');
+    platforms.create(600, 400, 'ground');
+    platforms.create(50, 250, 'ground');
+    platforms.create(750, 220, 'ground');
+
+    //  Input Events
+    cursors = this.input.keyboard.createCursorKeys();
+    keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+    keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+    keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+    keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+
+    //  Some stars to collect, 12 in total, evenly spaced 70 pixels apart along the x axis
+    stars = this.physics.add.group({
+        key: 'star',
+        repeat: 11,
+        setXY: { x: 12, y: 0, stepX: 70 }
+    });
+
+    stars.children.iterate(function (child) {
+
+        //  Give each star a slightly different bounce
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+        child.setScale(0.8);
+
+    });
+
+    bombs = this.physics.add.group();
+
+    //  The score
+    scorebox=this.physics.add.sprite(212, 570, 'scorebox').setImmovable(true);
+    scorebox.body.setAllowGravity(false);
+    
+    scoreText = this.add.text(16, 558, 'Score:', { fontSize: '28px', fill: '#000' });
+    scoreNumber = this.add.text(130, 558, '0', { fontSize: '28px', fill: '#000' });
+    
+    batteryText = this.add.text(200, 558, 'Battery:', { fontSize: '28px', fill: '#000' });
+    batteryNumber = this.add.text(350, 558, '100', { fontSize: '28px', fill: '#d90000'});
+
+    // The player and its settings
+    player = this.physics.add.sprite(100, 450, 'dude');
+    player.setCollideWorldBounds(true);
+    player.body.setSize(66,29);
+    player.body.setOffset(5,15);
+
+
+    //  Our player animations, turning, walking left and walking right.
+    this.anims.create({
+        key: 'left',
+        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 1 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    this.anims.create({
+        key: 'right',
+        frames: this.anims.generateFrameNumbers('dude', { start: 2, end: 3 }),
+        frameRate: 10,
+        repeat: -1
+    });
+    
+    //  Collide the player and the stars with the platforms
+    this.physics.add.collider(player, platforms);
+    this.physics.add.collider(stars, platforms);
+    this.physics.add.collider(bombs, platforms);
+
+    //  Checks to see if the player overlaps with any of the stars, if he does call the collectStar function
+    this.physics.add.overlap(player, stars, collectStar, null, this);
+    this.physics.add.overlap(player, wecBody, connectWec, null, this);
+    this.physics.add.collider(player, bombs, hitBomb, null, this);
+}
+
+function update ()
+{
+    if (Math.round(battery) > 0){
+        battery -= 1/24;
+    } else{
+        this.physics.pause();
+
+        player.setTint(0xFFBB6F);
+
+        player.anims.play('turn');
+
+        gameOver = true;
+    }
+    batteryNumber.setText(Math.round(battery));
+
+    // messy, makes wec go up and down smoothly
+    wecTick += 1;
+    if (wecTick == 80){
+        wecDir = wecDir * (-1);
+        wecTick = 0;
+    }
+    wecVel += wecDir/25;
+    if (wecVel < -0.04){
+        wecSw = wecSw * (-1);
+    }
+    wecBody.setVelocityY(wecVel*5*wecSw);
+    
+    skyWrapper.tilePositionX -= .4;
+
+    if (gameOver)
+    {
+        gameOverText = this.add.text(190, 160, '\t\t\t\t\tGame Over!\nRefresh to Play Again', { fontSize: '32px', fill: '#000' });
+        return;
+    }
+
+    // left and right
+    if (cursors.left.isDown || keyA.isDown){
+        player.setVelocityX(-160);
+        player.anims.play('left', true);
+    } else if (cursors.right.isDown || keyD.isDown){
+        player.setVelocityX(160);
+        player.anims.play('right', true);
+    } else{
+        player.setVelocityX(0);
+    }
+    
+    // up and down
+    if (cursors.up.isDown || keyW.isDown){
+        player.setVelocityY(-160);
+    } else if(cursors.down.isDown || keyS.isDown){
+        player.setVelocityY(160);
+    } else{
+        player.setVelocityY(0);
+    }
+}
+
+function collectStar (player, star)
+{
+    star.disableBody(true, true);
+
+    //  Add and update the score
+    score += 10;
+    scoreNumber.setText(score);
+
+    if (stars.countActive(true) === 0)
+    {
+        //  A new batch of stars to collect
+        stars.children.iterate(function (child) {
+
+            child.enableBody(true, child.x, 0, true, true);
+
+        });
+
+        var x = (player.x < 400) ? Phaser.Math.Between(400, 800) : Phaser.Math.Between(0, 400);
+
+        var bomb = bombs.create(x, 16, 'bomb');
+        bomb.setBounce(1);
+        bomb.setCollideWorldBounds(true);
+        bomb.setVelocity(Phaser.Math.Between(-200, 200), 20);
+        bomb.allowGravity = false;
+        bomb.setScale(1.5);
+        bomb.body.setSize(16, 14);
+        bomb.body.setOffset(0,12);
+
+    }
+}
+
+function connectWec (player, wec)
+{
+    if (Math.round(battery) <= 99){
+        battery += .8;
+    }
+    batteryNumber.setText(Math.round(battery));
+}
+
+function hitBomb (player, bomb)
+{
+    this.physics.pause();
+
+    player.setTint(0xFFBB6F);
+
+    player.anims.play('turn');
+
+    gameOver = true;
+}
+
+</script>
+
+<div style="width:800px; margin:0 auto; background-color:rgb(241, 92, 34);">
+    <h3 style="margin-top:0px; margin-bottom:3px; padding-left: 12px;padding-top:5px;text-align: left; font-family:Arial, Helvetica, sans-serif;color:white;">How To Play</h3>
+    <p style="margin-top:0px; margin-left: 15px; margin-right: 15px; margin-bottom: 0px; font-family:Arial, Helvetica, sans-serif; color:white;"> 
+        1) <b>Drive</b> with the arrow keys &nbsp;
+        2) <b>Dodge</b> the bouncing obstacles &nbsp;
+        3) <b>Pick Up</b> sea shells to get points<br>
+        4) <b>Recharge</b> your battery at the wave energy converter &nbsp;
+        5) <b>Refresh</b> the page to play again
+    </p>
+    <p style="margin-top:8px; margin-left: 15px; color:white; margin-right: 15px;padding-bottom:10px; font-family:Arial, Helvetica, sans-serif;">
+        <i>Created by <a href="https://www.linkedin.com/in/carsoncgray/">Carson Gray</a>
+        and <a href="https://www.linkedin.com/in/parismyers/">Paris Myers</a>
+        for Oregon State University's <a href="https://www.pmec.us/mecc-2021-osu">MECC Team</a>. Go Beavs!</i></p>
+    </div>
+
+</body>
+</html>
